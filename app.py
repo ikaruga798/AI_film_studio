@@ -385,7 +385,7 @@ def video_gen():
             payload['image_url'] = data['image_url']
 
         resp = req.post(
-            data['api_url'].rstrip('/') + '/videos/generations',
+            data['api_url'].rstrip('/') + '/video/generation/tasks',
             headers=headers, json=payload, timeout=300
         )
         resp.raise_for_status()
@@ -421,6 +421,187 @@ def video_gen():
             project_state['nodes'][node_id]['error_log'] = err
             save_state(project_state)
         return jsonify({'ok': False, 'error': str(e), 'log': err}), 500
+
+# ── 火山引擎图片生成 API ────────────────────────────────────
+@app.route('/api/image_gen_volcano', methods=['POST'])
+def image_gen_volcano():
+    import requests as req
+    data = request.json
+    node_id = data.get('node_id')
+    if node_id and node_id in project_state['nodes']:
+        project_state['nodes'][node_id]['status'] = 'running'
+        save_state(project_state)
+    try:
+        headers = {'Authorization': f"Bearer {data['api_key']}", 'Content-Type': 'application/json'}
+        resp = req.post('https://ark.cn-beijing.volces.com/api/v3/images/generations',
+                        headers=headers, json=data['body'], timeout=120)
+        resp.raise_for_status()
+        result_data = resp.json().get('data', [])
+        images = []
+        for item in result_data:
+            if item.get('b64_json'):
+                import base64
+                img_bytes = base64.b64decode(item['b64_json'])
+            else:
+                img_bytes = req.get(item['url'], timeout=60).content
+            fname = f"{uuid.uuid4().hex}.png"
+            with open(os.path.join(UPLOAD_DIR, fname), 'wb') as f:
+                f.write(img_bytes)
+            images.append(f'/api/file/{fname}')
+        if node_id and node_id in project_state['nodes']:
+            n = project_state['nodes'][node_id]
+            n['output_images'] = (n.get('output_images', []) + images)[-3:]
+            n['status'] = 'done'
+            save_state(project_state)
+        return jsonify({'ok': True, 'images': images})
+    except Exception as e:
+        err = traceback.format_exc()
+        if node_id and node_id in project_state['nodes']:
+            project_state['nodes'][node_id].update({'status': 'error', 'error_log': err})
+            save_state(project_state)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+# ── 谷歌图片生成 API ────────────────────────────────────────
+@app.route('/api/image_gen_google', methods=['POST'])
+def image_gen_google():
+    import requests as req
+    data = request.json
+    node_id = data.get('node_id')
+    if node_id and node_id in project_state['nodes']:
+        project_state['nodes'][node_id]['status'] = 'running'
+        save_state(project_state)
+    try:
+        api_key = data['api_key']
+        model   = data.get('model', 'imagen-3.0-generate-002')
+        payload = {'prompt': data.get('prompt', ''), 'image_config': data.get('image_config', {})}
+        # 移除 image_config 中的空值
+        payload['image_config'] = {k: v for k, v in payload['image_config'].items() if v not in (None, '', [])}
+        resp = req.post(
+            f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateImages?key={api_key}',
+            json=payload, timeout=120)
+        resp.raise_for_status()
+        images = []
+        import base64
+        for item in resp.json().get('generatedImages', []):
+            b64 = item.get('image', {}).get('imageBytes', '')
+            if b64:
+                fname = f"{uuid.uuid4().hex}.png"
+                with open(os.path.join(UPLOAD_DIR, fname), 'wb') as f:
+                    f.write(base64.b64decode(b64))
+                images.append(f'/api/file/{fname}')
+        if node_id and node_id in project_state['nodes']:
+            n = project_state['nodes'][node_id]
+            n['output_images'] = (n.get('output_images', []) + images)[-3:]
+            n['status'] = 'done'
+            save_state(project_state)
+        return jsonify({'ok': True, 'images': images})
+    except Exception as e:
+        err = traceback.format_exc()
+        if node_id and node_id in project_state['nodes']:
+            project_state['nodes'][node_id].update({'status': 'error', 'error_log': err})
+            save_state(project_state)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+# ── 火山引擎视频生成 API ────────────────────────────────────
+@app.route('/api/video_gen_volcano', methods=['POST'])
+def video_gen_volcano():
+    import requests as req
+    data = request.json
+    node_id = data.get('node_id')
+    if node_id and node_id in project_state['nodes']:
+        project_state['nodes'][node_id]['status'] = 'running'
+        save_state(project_state)
+    try:
+        headers = {'Authorization': f"Bearer {data['api_key']}", 'Content-Type': 'application/json'}
+        payload = {'model': data['model'], 'content': data['content']}
+        # 提交任务
+        resp = req.post('https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks',
+                        headers=headers, json=payload, timeout=60)
+        resp.raise_for_status()
+        task_id = resp.json().get('id')
+        # 轮询
+        for _ in range(600):
+            time.sleep(2)
+            r = req.get(f'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{task_id}',
+                        headers=headers, timeout=30)
+            r.raise_for_status()
+            rj = r.json()
+            status = rj.get('status')
+            if status == 'succeeded':
+                video_url = rj.get('content', {}).get('video_url') or \
+                            (rj.get('content', {}).get('videos') or [{}])[0].get('url', '')
+                videos = []
+                if video_url:
+                    vid_bytes = req.get(video_url, timeout=120).content
+                    fname = f"{uuid.uuid4().hex}.mp4"
+                    with open(os.path.join(UPLOAD_DIR, fname), 'wb') as f:
+                        f.write(vid_bytes)
+                    videos.append(f'/api/file/{fname}')
+                if node_id and node_id in project_state['nodes']:
+                    project_state['nodes'][node_id].update({'output_videos': videos, 'status': 'done'})
+                    save_state(project_state)
+                return jsonify({'ok': True, 'videos': videos})
+            elif status in ('failed', 'cancelled'):
+                raise RuntimeError(f"任务失败: {rj}")
+        raise TimeoutError('火山引擎视频生成超时')
+    except Exception as e:
+        err = traceback.format_exc()
+        if node_id and node_id in project_state['nodes']:
+            project_state['nodes'][node_id].update({'status': 'error', 'error_log': err})
+            save_state(project_state)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+# ── 谷歌视频生成 API ────────────────────────────────────────
+@app.route('/api/video_gen_google', methods=['POST'])
+def video_gen_google():
+    import requests as req, base64
+    data = request.json
+    node_id = data.get('node_id')
+    if node_id and node_id in project_state['nodes']:
+        project_state['nodes'][node_id]['status'] = 'running'
+        save_state(project_state)
+    try:
+        api_key = data['api_key']
+        model   = data.get('model', 'veo-3.1-generate-preview')
+        gen_cfg = {k: v for k, v in data.get('generation_config', {}).items() if v not in (None, '')}
+        # 若有参考图片 URL，转为 base64
+        ref_img_url = gen_cfg.pop('referenceImageUrl', None)
+        if ref_img_url:
+            img_bytes = req.get(ref_img_url, timeout=30).content
+            gen_cfg['referenceImages'] = [{'mimeType': 'image/jpeg', 'bytesBase64Encoded': base64.b64encode(img_bytes).decode()}]
+        payload = {'instances': [{'prompt': data.get('prompt', '')}], 'parameters': {'generationConfig': gen_cfg}}
+        resp = req.post(
+            f'https://generativelanguage.googleapis.com/v1beta/models/{model}:predictLongRunning?key={api_key}',
+            json=payload, timeout=60)
+        resp.raise_for_status()
+        op_name = resp.json().get('name', '')
+        # 轮询操作状态
+        for _ in range(300):
+            time.sleep(5)
+            r = req.get(f'https://generativelanguage.googleapis.com/v1beta/{op_name}?key={api_key}', timeout=30)
+            r.raise_for_status()
+            rj = r.json()
+            if rj.get('done'):
+                videos = []
+                for vid in rj.get('response', {}).get('generateVideoResponse', {}).get('generatedSamples', []):
+                    vid_uri = vid.get('video', {}).get('uri', '')
+                    if vid_uri:
+                        vid_bytes = req.get(f'{vid_uri}:download?alt=media&key={api_key}', timeout=120).content
+                        fname = f"{uuid.uuid4().hex}.mp4"
+                        with open(os.path.join(UPLOAD_DIR, fname), 'wb') as f:
+                            f.write(vid_bytes)
+                        videos.append(f'/api/file/{fname}')
+                if node_id and node_id in project_state['nodes']:
+                    project_state['nodes'][node_id].update({'output_videos': videos, 'status': 'done'})
+                    save_state(project_state)
+                return jsonify({'ok': True, 'videos': videos})
+        raise TimeoutError('Google 视频生成超时')
+    except Exception as e:
+        err = traceback.format_exc()
+        if node_id and node_id in project_state['nodes']:
+            project_state['nodes'][node_id].update({'status': 'error', 'error_log': err})
+            save_state(project_state)
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 # ── 设置 API ────────────────────────────────────────────────
 @app.route('/api/settings', methods=['GET', 'POST'])

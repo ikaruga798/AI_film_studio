@@ -147,22 +147,21 @@ function renderModalBody(node) {
       </select>
     </div>
     <div class="modal-section">
-      <label>图片比例</label>
-      <select onchange="updateNodeData('${node.id}','keypic_ratio',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
-        <option value="16:9" ${(data.keypic_ratio||'16:9')==='16:9'?'selected':''}>16:9（横屏）</option>
-        <option value="9:16" ${data.keypic_ratio==='9:16'?'selected':''}>9:16（竖屏）</option>
-      </select>
-    </div>
-    <div class="modal-section">
       <label>图片生成方式</label>
       <select onchange="updateNodeData('${node.id}','keypic_gen_mode',this.value);openModal('${node.id}')" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
-        <option value="comfyui" ${genMode==='comfyui'?'selected':''}>ComfyUI（本地）</option>
-        <option value="api" ${genMode==='api'?'selected':''}>图片生成 API（DALL-E 等）</option>
+        <option value="comfyui"  ${genMode==='comfyui'?'selected':''}>ComfyUI（本地）</option>
+        <option value="api"      ${genMode==='api'?'selected':''}>图片生成 API（DALL-E 等）</option>
+        <option value="volcano"  ${genMode==='volcano'?'selected':''}>火山引擎</option>
+        <option value="google"   ${genMode==='google'?'selected':''}>Google AI Studio</option>
       </select>
     </div>`;
     html += textareaSection(node, 'shot_label', '镜头编号（m_n）', '例如：1_1');
     if (genMode === 'api') {
       html += imageApiConfigSection(node, settings);
+    } else if (genMode === 'volcano') {
+      html += volcanoImageConfigSection(node, settings);
+    } else if (genMode === 'google') {
+      html += googleImageConfigSection(node, settings);
     } else {
       html += comfyConfigSection(node, settings);
       html += workflowSection(node, DEFAULT_WORKFLOWS.txt2img);
@@ -180,11 +179,17 @@ function renderModalBody(node) {
         <option value="comfyui"  ${vidMode==='comfyui'?'selected':''}>ComfyUI（图生视频）</option>
         <option value="api_img"  ${vidMode==='api_img'?'selected':''}>外部API（图生视频）</option>
         <option value="api_text" ${vidMode==='api_text'?'selected':''}>外部API（纯文本生视频）</option>
+        <option value="volcano"  ${vidMode==='volcano'?'selected':''}>火山引擎</option>
+        <option value="google"   ${vidMode==='google'?'selected':''}>Google AI Studio</option>
       </select>
     </div>`;
     if (vidMode === 'comfyui') {
       html += comfyConfigSection(node, settings);
       html += workflowSection(node, DEFAULT_WORKFLOWS.img2vid);
+    } else if (vidMode === 'volcano') {
+      html += volcanoVideoConfigSection(node, settings);
+    } else if (vidMode === 'google') {
+      html += googleVideoConfigSection(node, settings);
     } else {
       html += `<div class="modal-section">
         <label>视频生成 API 地址</label>
@@ -250,6 +255,7 @@ function apiConfigSection(node, settings) {
 
 function imageApiConfigSection(node, settings) {
   const d = node.data || {};
+  const sel = w => `style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff"`;
   return `<div class="modal-section">
     <label>API 地址（留空使用全局设置）</label>
     <input type="text" value="${d.img_api_url || ''}" placeholder="${settings.llm_url || 'https://api.openai.com/v1'}"
@@ -260,12 +266,133 @@ function imageApiConfigSection(node, settings) {
     <label style="margin-top:6px">模型名</label>
     <input type="text" value="${d.img_model || ''}" placeholder="dall-e-3"
       onchange="updateNodeData('${node.id}','img_model',this.value)">
-    <label style="margin-top:6px">图片尺寸</label>
-    <select onchange="updateNodeData('${node.id}','img_size',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
-      <option value="1024x1024" ${(d.img_size||'1024x1024')==='1024x1024'?'selected':''}>1024×1024</option>
-      <option value="1792x1024" ${d.img_size==='1792x1024'?'selected':''}>1792×1024（横）</option>
-      <option value="1024x1792" ${d.img_size==='1024x1792'?'selected':''}>1024×1792（竖）</option>
+    ${imgSizeSection(node, d)}
+  </div>`;
+}
+
+function volcanoImageConfigSection(node, settings) {
+  const d = node.data || {};
+  const ps = (window._settings || {}).preset_img_volcano || {};
+  return `<div class="modal-section">
+    <label>API Key（留空使用全局预设）</label>
+    <input type="password" value="${d.img_api_key || ''}" placeholder="${ps.api_key ? '已配置全局预设' : 'ARK_API_KEY'}"
+      onchange="updateNodeData('${node.id}','img_api_key',this.value)">
+    <label style="margin-top:6px">模型名（Endpoint ID）</label>
+    <input type="text" value="${d.img_model || ps.model || ''}" placeholder="ep-xxxxxxxx"
+      onchange="updateNodeData('${node.id}','img_model',this.value)">
+    <label style="margin-top:6px">response_format</label>
+    <select onchange="updateNodeData('${node.id}','vol_response_format',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+      <option value="url" ${(d.vol_response_format||'url')==='url'?'selected':''}>url</option>
+      <option value="b64_json" ${d.vol_response_format==='b64_json'?'selected':''}>b64_json</option>
     </select>
+    <label style="margin-top:6px">尺寸（size，留空不发送）</label>
+    <select onchange="updateNodeData('${node.id}','vol_size',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+      <option value="" ${!d.vol_size?'selected':''}>不指定（留空）</option>
+      <option value="1920x1080" ${d.vol_size==='1920x1080'?'selected':''}>1920×1080</option>
+      <option value="2560x1440" ${d.vol_size==='2560x1440'?'selected':''}>2560×1440</option>
+      <option value="3840x2160" ${d.vol_size==='3840x2160'?'selected':''}>3840×2160（4K）</option>
+      <option value="1440x2560" ${d.vol_size==='1440x2560'?'selected':''}>1440×2560（竖屏）</option>
+      <option value="custom"    ${d.vol_size==='custom'?'selected':''}>自定义</option>
+    </select>
+    ${d.vol_size==='custom'?`<input type="text" value="${d.vol_size_custom||''}" placeholder="例如：1280x720"
+      style="margin-top:4px" onchange="updateNodeData('${node.id}','vol_size_custom',this.value)">`:``}
+    <label style="margin-top:6px">watermark</label>
+    <select onchange="updateNodeData('${node.id}','vol_watermark',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+      <option value="" ${!d.vol_watermark?'selected':''}>不指定</option>
+      <option value="true"  ${d.vol_watermark==='true'?'selected':''}>true</option>
+      <option value="false" ${d.vol_watermark==='false'?'selected':''}>false</option>
+    </select>
+  </div>`;
+}
+
+function googleImageConfigSection(node, settings) {
+  const d = node.data || {};
+  const ps = (window._settings || {}).preset_img_google || {};
+  return `<div class="modal-section">
+    <label>API Key（留空使用全局预设）</label>
+    <input type="password" value="${d.img_api_key || ''}" placeholder="${ps.api_key ? '已配置全局预设' : 'YOUR_API_KEY'}"
+      onchange="updateNodeData('${node.id}','img_api_key',this.value)">
+    <label style="margin-top:6px">模型名</label>
+    <input type="text" value="${d.img_model || ps.model || ''}" placeholder="imagen-3.0-generate-002"
+      onchange="updateNodeData('${node.id}','img_model',this.value)">
+    <label style="margin-top:6px">number_of_images</label>
+    <input type="number" min="1" max="4" value="${d.goog_num_images || ps.num_images || 1}"
+      onchange="updateNodeData('${node.id}','goog_num_images',this.value)">
+    <label style="margin-top:6px">aspect_ratio（留空不发送）</label>
+    <select onchange="updateNodeData('${node.id}','goog_aspect_ratio',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+      <option value="" ${!d.goog_aspect_ratio?'selected':''}>不指定</option>
+      <option value="16:9"  ${d.goog_aspect_ratio==='16:9'?'selected':''}>16:9</option>
+      <option value="9:16"  ${d.goog_aspect_ratio==='9:16'?'selected':''}>9:16</option>
+      <option value="1:1"   ${d.goog_aspect_ratio==='1:1'?'selected':''}>1:1</option>
+      <option value="4:3"   ${d.goog_aspect_ratio==='4:3'?'selected':''}>4:3</option>
+    </select>
+    <label style="margin-top:6px">negative_prompt（留空不发送）</label>
+    <input type="text" value="${d.goog_neg_prompt || ps.negative_prompt || ''}" placeholder="模糊, 噪点, 变形"
+      onchange="updateNodeData('${node.id}','goog_neg_prompt',this.value)">
+    <label style="margin-top:6px">safety_filter_level（留空不发送）</label>
+    <select onchange="updateNodeData('${node.id}','goog_safety',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+      <option value="" ${!d.goog_safety?'selected':''}>不指定</option>
+      <option value="BLOCK_LOW_AND_ABOVE"    ${d.goog_safety==='BLOCK_LOW_AND_ABOVE'?'selected':''}>BLOCK_LOW_AND_ABOVE</option>
+      <option value="BLOCK_MEDIUM_AND_ABOVE" ${d.goog_safety==='BLOCK_MEDIUM_AND_ABOVE'?'selected':''}>BLOCK_MEDIUM_AND_ABOVE</option>
+      <option value="BLOCK_ONLY_HIGH"        ${d.goog_safety==='BLOCK_ONLY_HIGH'?'selected':''}>BLOCK_ONLY_HIGH</option>
+    </select>
+  </div>`;
+}
+
+// 通用分辨率选择（用于原始API模式）
+function imgSizeSection(node, d) {
+  const cur = d.img_size || '';
+  const presets = ['1920x1080','2560x1440','3840x2160','1440x2560','1024x1024','1792x1024','1024x1792'];
+  const isCustom = cur && !presets.includes(cur);
+  return `<label style="margin-top:6px">图片尺寸（留空不发送）</label>
+    <select onchange="updateNodeData('${node.id}','img_size',this.value);openModal('${node.id}')" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+      <option value="" ${!cur?'selected':''}>不指定（留空）</option>
+      <option value="1920x1080"  ${cur==='1920x1080'?'selected':''}>1920×1080</option>
+      <option value="2560x1440"  ${cur==='2560x1440'?'selected':''}>2560×1440</option>
+      <option value="3840x2160"  ${cur==='3840x2160'?'selected':''}>3840×2160（4K）</option>
+      <option value="1440x2560"  ${cur==='1440x2560'?'selected':''}>1440×2560（竖屏）</option>
+      <option value="1024x1024"  ${cur==='1024x1024'?'selected':''}>1024×1024</option>
+      <option value="1792x1024"  ${cur==='1792x1024'?'selected':''}>1792×1024（横）</option>
+      <option value="1024x1792"  ${cur==='1024x1792'?'selected':''}>1024×1792（竖）</option>
+      <option value="custom"     ${isCustom?'selected':''}>自定义</option>
+    </select>
+    ${isCustom?`<input type="text" value="${cur}" placeholder="例如：1280x720"
+      style="margin-top:4px" onchange="updateNodeData('${node.id}','img_size',this.value)">`:``}`;
+}
+
+function volcanoVideoConfigSection(node, settings) {
+  const d = node.data || {};
+  const ps = (window._settings || {}).preset_vid_volcano || {};
+  return `<div class="modal-section">
+    <label>API Key（留空使用全局预设）</label>
+    <input type="password" value="${d.vid_api_key||''}" placeholder="${ps.api_key?'已配置全局预设':'ARK_API_KEY'}"
+      onchange="updateNodeData('${node.id}','vid_api_key',this.value)">
+    <label style="margin-top:6px">模型名（Endpoint ID）</label>
+    <input type="text" value="${d.vid_model||ps.model||''}" placeholder="ep-xxxxxxxx"
+      onchange="updateNodeData('${node.id}','vid_model',this.value)">
+  </div>`;
+}
+
+function googleVideoConfigSection(node, settings) {
+  const d = node.data || {};
+  const ps = (window._settings || {}).preset_vid_google || {};
+  return `<div class="modal-section">
+    <label>API Key（留空使用全局预设）</label>
+    <input type="password" value="${d.vid_api_key||''}" placeholder="${ps.api_key?'已配置全局预设':'YOUR_API_KEY'}"
+      onchange="updateNodeData('${node.id}','vid_api_key',this.value)">
+    <label style="margin-top:6px">模型名</label>
+    <input type="text" value="${d.vid_model||ps.model||''}" placeholder="veo-3.1-generate-preview"
+      onchange="updateNodeData('${node.id}','vid_model',this.value)">
+    <label style="margin-top:6px">aspect_ratio（留空不发送）</label>
+    <select onchange="updateNodeData('${node.id}','vid_aspect_ratio',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+      <option value="" ${!d.vid_aspect_ratio?'selected':''}>不指定</option>
+      <option value="16:9" ${d.vid_aspect_ratio==='16:9'?'selected':''}>16:9</option>
+      <option value="9:16" ${d.vid_aspect_ratio==='9:16'?'selected':''}>9:16</option>
+      <option value="1:1"  ${d.vid_aspect_ratio==='1:1'?'selected':''}>1:1</option>
+    </select>
+    <label style="margin-top:6px">durationSeconds（留空不发送）</label>
+    <input type="number" min="1" max="60" value="${d.vid_duration||ps.duration_seconds||''}" placeholder="8"
+      onchange="updateNodeData('${node.id}','vid_duration',this.value)">
   </div>`;
 }
 

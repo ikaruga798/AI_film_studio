@@ -510,6 +510,7 @@ function closeSettings(e) {
 
 async function saveSettings() {
   _settings = {
+    ..._settings,
     llm_url:     document.getElementById('s-llm-url').value.trim(),
     llm_key:     document.getElementById('s-llm-key').value.trim(),
     llm_model:   document.getElementById('s-llm-model').value.trim(),
@@ -519,6 +520,45 @@ async function saveSettings() {
   await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(_settings) });
   closeSettings();
   alert('设置已保存');
+}
+
+// ── 预设弹窗 ──────────────────────────────────────────────
+function openPresets() {
+  const s = _settings;
+  const iv = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  iv('p-img-vol-key',    s.preset_img_volcano?.api_key);
+  iv('p-img-vol-model',  s.preset_img_volcano?.model);
+  iv('p-img-goog-key',   s.preset_img_google?.api_key);
+  iv('p-img-goog-model', s.preset_img_google?.model);
+  iv('p-img-goog-ratio', s.preset_img_google?.aspect_ratio);
+  iv('p-img-goog-neg',   s.preset_img_google?.negative_prompt);
+  iv('p-vid-vol-key',    s.preset_vid_volcano?.api_key);
+  iv('p-vid-vol-model',  s.preset_vid_volcano?.model);
+  iv('p-vid-goog-key',   s.preset_vid_google?.api_key);
+  iv('p-vid-goog-model', s.preset_vid_google?.model);
+  iv('p-vid-goog-ratio', s.preset_vid_google?.aspect_ratio);
+  iv('p-vid-goog-dur',   s.preset_vid_google?.duration_seconds);
+  document.getElementById('presets-overlay').classList.remove('hidden');
+}
+
+function closePresets(e) {
+  if (e && e.target !== document.getElementById('presets-overlay')) return;
+  document.getElementById('presets-overlay').classList.add('hidden');
+}
+
+async function savePresets() {
+  const gv = id => document.getElementById(id)?.value.trim() || '';
+  _settings = {
+    ..._settings,
+    preset_img_volcano: { api_key: gv('p-img-vol-key'), model: gv('p-img-vol-model') },
+    preset_img_google:  { api_key: gv('p-img-goog-key'), model: gv('p-img-goog-model'), aspect_ratio: gv('p-img-goog-ratio'), negative_prompt: gv('p-img-goog-neg') },
+    preset_vid_volcano: { api_key: gv('p-vid-vol-key'), model: gv('p-vid-vol-model') },
+    preset_vid_google:  { api_key: gv('p-vid-goog-key'), model: gv('p-vid-goog-model'), aspect_ratio: gv('p-vid-goog-ratio'), duration_seconds: gv('p-vid-goog-dur') }
+  };
+  window._settings = _settings;
+  await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(_settings) });
+  closePresets();
+  alert('预设已保存');
 }
 
 // ── 节点数据更新 ──────────────────────────────────────────
@@ -668,44 +708,66 @@ async function runKeyPic(id) {
   const parsed = extractJSON(picPrompts);
   const shots = parsed?.shots || [];
   const label = d.shot_label || '1_1';
-  const shot  = shots.find(s => s.shot_id === label) || shots[0] || {};
-
-  // 根据比例选择尺寸
-  const ratio = d.keypic_ratio || '16:9';
-  const apiSize = ratio === '9:16' ? '1024x1792' : '1792x1024';
-  const [wfW, wfH] = ratio === '9:16' ? ['1080', '1920'] : ['1920', '1080'];
+  const shot  = shots.find(x => x.shot_id === label) || shots[0] || {};
+  const prompt = shot.positive_prompt || d.custom_prompt || 'cinematic shot';
+  const genMode = d.keypic_gen_mode || 'comfyui';
 
   node.status = 'running';
   renderNode(node);
 
-  if ((d.keypic_gen_mode || 'comfyui') === 'api') {
-    const prompt = shot.positive_prompt || d.custom_prompt || 'cinematic shot';
-    await fetch('/api/image_gen', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        node_id:  id,
-        api_url:  d.img_api_url || s.llm_url  || 'https://api.openai.com/v1',
-        api_key:  d.img_api_key || s.llm_key  || '',
-        model:    d.img_model   || 'dall-e-3',
-        prompt,
-        size:     d.img_size || apiSize,
-        n: 1
-      })
+  if (genMode === 'volcano') {
+    const ps = s.preset_img_volcano || {};
+    const apiKey = d.img_api_key || ps.api_key || '';
+    const model  = d.img_model   || ps.model   || '';
+    // 解析尺寸：custom 时用 vol_size_custom，否则用 vol_size
+    const rawSize = d.vol_size === 'custom' ? (d.vol_size_custom || '') : (d.vol_size || '');
+    const body = { model, prompt, response_format: d.vol_response_format || 'url', stream: false };
+    if (rawSize) body.size = rawSize;
+    if (d.vol_watermark) body.watermark = d.vol_watermark === 'true';
+    await fetch('/api/image_gen_volcano', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ node_id: id, api_key: apiKey, body })
     });
+
+  } else if (genMode === 'google') {
+    const ps = s.preset_img_google || {};
+    const apiKey = d.img_api_key || ps.api_key || '';
+    const model  = d.img_model   || ps.model   || 'imagen-3.0-generate-002';
+    const imgCfg = {};
+    const numImg = parseInt(d.goog_num_images || ps.num_images || 1);
+    if (numImg) imgCfg.number_of_images = numImg;
+    if (d.goog_aspect_ratio || ps.aspect_ratio) imgCfg.aspect_ratio = d.goog_aspect_ratio || ps.aspect_ratio;
+    if (d.goog_neg_prompt   || ps.negative_prompt) imgCfg.negative_prompt = d.goog_neg_prompt || ps.negative_prompt;
+    if (d.goog_safety       || ps.safety_filter_level) imgCfg.safety_filter_level = d.goog_safety || ps.safety_filter_level;
+    await fetch('/api/image_gen_google', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ node_id: id, api_key: apiKey, model, prompt, image_config: imgCfg })
+    });
+
+  } else if (genMode === 'api') {
+    const body = {
+      node_id: id,
+      api_url: d.img_api_url || s.llm_url || 'https://api.openai.com/v1',
+      api_key: d.img_api_key || s.llm_key || '',
+      model:   d.img_model   || 'dall-e-3',
+      prompt, n: 1
+    };
+    // img_size 留空则不发送 size
+    const sz = d.img_size === 'custom' ? (d.img_size_custom || '') : (d.img_size || '');
+    if (sz) body.size = sz;
+    await fetch('/api/image_gen', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+
   } else {
-    // ComfyUI 分支：替换尺寸占位符
+    // ComfyUI
     let wfStr = d.workflow || JSON.stringify(DEFAULT_WORKFLOWS.txt2img);
     wfStr = wfStr
-      .replace('{{positive_prompt}}', shot.positive_prompt || d.custom_prompt || 'cinematic shot')
+      .replace('{{positive_prompt}}', prompt)
       .replace('{{negative_prompt}}', shot.negative_prompt || 'blurry, low quality')
-      .replace('{{width}}', wfW)
-      .replace('{{height}}', wfH);
+      .replace('{{width}}', '1920').replace('{{height}}', '1080');
     let wf;
     try { wf = JSON.parse(wfStr); } catch(e) { alert('Workflow JSON 格式错误'); return; }
     await fetch('/api/comfyui/txt2img', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
+      method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ node_id: id, comfyui_url: d.comfyui_url || s.comfyui_url || 'http://127.0.0.1:8188', workflow: wf })
     });
   }
@@ -722,27 +784,60 @@ async function runVideo(id) {
   const s = _settings;
   const vidMode = d.vid_gen_mode || 'comfyui';
 
-  // 读取上游视频描述文本
   const videoPrompts = getUpstreamOutput(id, 'video_prompts') || '';
   let motionPrompt = videoPrompts;
-  // 尝试从JSON中提取当前镜头的motion_prompt
   const parsed = extractJSON(videoPrompts);
   if (parsed?.shots) {
     const label = d.shot_label || '1_1';
-    const shot = parsed.shots.find(s => s.shot_id === label) || parsed.shots[0] || {};
+    const shot = parsed.shots.find(x => x.shot_id === label) || parsed.shots[0] || {};
     motionPrompt = shot.motion_prompt || videoPrompts;
+  }
+
+  // 获取上游关键帧图片（图生视频模式需要）
+  function getKeyframeUrl() {
+    const edge = edges.find(e => e.target === id && e.dstPort === 'keyframes');
+    const kp = edge ? nodes[edge.source] : null;
+    return kp?.output_images?.[kp?.selected_image ?? 0] || '';
+  }
+  // 判断是否有图片参考输入（角色/环境节点接入）
+  function hasImageRef() {
+    return edges.some(e => e.target === id && (e.dstPort === 'characters' || e.dstPort === 'env_image'));
   }
 
   node.status = 'running';
   renderNode(node);
 
-  if (vidMode === 'comfyui') {
-    // 读取上游关键帧图片
-    const kpNode = (() => {
-      const edge = edges.find(e => e.target === id && e.dstPort === 'keyframes');
-      return edge ? nodes[edge.source] : null;
-    })();
-    const imgUrl = kpNode?.output_images?.[kpNode?.selected_image ?? 0] || '';
+  if (vidMode === 'volcano') {
+    const ps = s.preset_vid_volcano || {};
+    const apiKey = d.vid_api_key || ps.api_key || '';
+    const model  = d.vid_model   || ps.model   || '';
+    const imgUrl = getKeyframeUrl();
+    const content = [{ type: 'text', text: motionPrompt }];
+    if (imgUrl && hasImageRef()) content.push({ type: 'image_url', image_url: { url: imgUrl } });
+    await fetch('/api/video_gen_volcano', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ node_id: id, api_key: apiKey, model, content })
+    });
+
+  } else if (vidMode === 'google') {
+    const ps = s.preset_vid_google || {};
+    const apiKey = d.vid_api_key || ps.api_key || '';
+    const model  = d.vid_model   || ps.model   || 'veo-3.1-generate-preview';
+    const genCfg = {};
+    if (ps.aspect_ratio || d.vid_aspect_ratio) genCfg.aspectRatio = d.vid_aspect_ratio || ps.aspect_ratio;
+    if (ps.duration_seconds || d.vid_duration) genCfg.durationSeconds = parseInt(d.vid_duration || ps.duration_seconds || 8);
+    const imgUrl = getKeyframeUrl();
+    if (imgUrl && hasImageRef()) {
+      // 需要后端将 URL 转为 base64
+      genCfg.referenceImageUrl = imgUrl;
+    }
+    await fetch('/api/video_gen_google', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ node_id: id, api_key: apiKey, model, prompt: motionPrompt, generation_config: genCfg })
+    });
+
+  } else if (vidMode === 'comfyui') {
+    const imgUrl = getKeyframeUrl();
     let wfStr = d.workflow || JSON.stringify(DEFAULT_WORKFLOWS.img2vid);
     wfStr = wfStr.replace('{{motion_prompt}}', motionPrompt).replace('{{image_url}}', imgUrl);
     let wf;
@@ -753,37 +848,15 @@ async function runVideo(id) {
     });
 
   } else if (vidMode === 'api_img') {
-    // 外部API 图生视频
-    const kpNode = (() => {
-      const edge = edges.find(e => e.target === id && e.dstPort === 'keyframes');
-      return edge ? nodes[edge.source] : null;
-    })();
-    const imgUrl = kpNode?.output_images?.[kpNode?.selected_image ?? 0] || '';
     await fetch('/api/video_gen', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        node_id: id,
-        api_url: d.vid_api_url || '',
-        api_key: d.vid_api_key || s.llm_key || '',
-        model:   d.vid_model  || '',
-        prompt:  motionPrompt,
-        image_url: imgUrl,
-        mode: 'img2vid'
-      })
+      body: JSON.stringify({ node_id: id, api_url: d.vid_api_url || '', api_key: d.vid_api_key || s.llm_key || '', model: d.vid_model || '', prompt: motionPrompt, image_url: getKeyframeUrl(), mode: 'img2vid' })
     });
 
   } else {
-    // 外部API 纯文本生视频
     await fetch('/api/video_gen', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        node_id: id,
-        api_url: d.vid_api_url || '',
-        api_key: d.vid_api_key || s.llm_key || '',
-        model:   d.vid_model  || '',
-        prompt:  motionPrompt,
-        mode: 'txt2vid'
-      })
+      body: JSON.stringify({ node_id: id, api_url: d.vid_api_url || '', api_key: d.vid_api_key || s.llm_key || '', model: d.vid_model || '', prompt: motionPrompt, mode: 'txt2vid' })
     });
   }
 

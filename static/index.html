@@ -22,6 +22,7 @@
     <button onclick="addNode('Output_Video')">+ 镜头视频</button>
     <span class="sep">|</span>
     <button onclick="openSettings()">⚙ 设置</button>
+    <button onclick="openPresets()">🎛 预设</button>
     <button onclick="saveProject()">💾 保存</button>
     <button onclick="clearCanvas()">🗑 清空</button>
   </div>
@@ -61,6 +62,57 @@
       <label>ComfyUI 地址</label>
       <input id="s-comfy-url" placeholder="http://127.0.0.1:8188" />
       <button class="btn-primary" onclick="saveSettings()">保存设置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 预设弹窗 -->
+<div id="presets-overlay" class="hidden" onclick="closePresets(event)">
+  <div id="presets-modal" onclick="event.stopPropagation()" style="min-width:480px;max-width:600px">
+    <div id="settings-header">
+      <span>🎛 全局预设</span>
+      <button onclick="closePresets()">✕</button>
+    </div>
+    <div id="presets-body" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      <div style="font-weight:bold;color:#7ec8e3">🖼 图片生成预设</div>
+      <div style="border:1px solid #1a4a8a;border-radius:6px;padding:10px">
+        <div style="margin-bottom:6px;color:#aaa">火山引擎</div>
+        <label>API Key</label>
+        <input id="p-img-vol-key" type="password" placeholder="ARK_API_KEY" />
+        <label style="margin-top:6px">默认模型（Endpoint ID）</label>
+        <input id="p-img-vol-model" placeholder="ep-xxxxxxxx" />
+      </div>
+      <div style="border:1px solid #1a4a8a;border-radius:6px;padding:10px">
+        <div style="margin-bottom:6px;color:#aaa">Google AI Studio</div>
+        <label>API Key</label>
+        <input id="p-img-goog-key" type="password" placeholder="YOUR_API_KEY" />
+        <label style="margin-top:6px">默认模型</label>
+        <input id="p-img-goog-model" placeholder="imagen-3.0-generate-002" />
+        <label style="margin-top:6px">默认 aspect_ratio（留空不发送）</label>
+        <input id="p-img-goog-ratio" placeholder="16:9" />
+        <label style="margin-top:6px">默认 negative_prompt（留空不发送）</label>
+        <input id="p-img-goog-neg" placeholder="模糊, 噪点, 变形" />
+      </div>
+      <div style="font-weight:bold;color:#7ec8e3;margin-top:4px">🎞 视频生成预设</div>
+      <div style="border:1px solid #1a4a8a;border-radius:6px;padding:10px">
+        <div style="margin-bottom:6px;color:#aaa">火山引擎</div>
+        <label>API Key</label>
+        <input id="p-vid-vol-key" type="password" placeholder="ARK_API_KEY" />
+        <label style="margin-top:6px">默认模型（Endpoint ID）</label>
+        <input id="p-vid-vol-model" placeholder="ep-xxxxxxxx" />
+      </div>
+      <div style="border:1px solid #1a4a8a;border-radius:6px;padding:10px">
+        <div style="margin-bottom:6px;color:#aaa">Google AI Studio</div>
+        <label>API Key</label>
+        <input id="p-vid-goog-key" type="password" placeholder="YOUR_API_KEY" />
+        <label style="margin-top:6px">默认模型</label>
+        <input id="p-vid-goog-model" placeholder="veo-3.1-generate-preview" />
+        <label style="margin-top:6px">默认 aspect_ratio（留空不发送）</label>
+        <input id="p-vid-goog-ratio" placeholder="16:9" />
+        <label style="margin-top:6px">默认 durationSeconds（留空不发送）</label>
+        <input id="p-vid-goog-dur" type="number" placeholder="8" />
+      </div>
+      <button class="btn-primary" onclick="savePresets()">💾 保存预设</button>
     </div>
   </div>
 </div>
