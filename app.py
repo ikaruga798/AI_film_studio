@@ -87,6 +87,46 @@ def upload_file():
     f.save(path)
     return jsonify({'filename': name, 'url': f'/api/file/{name}'})
 
+# ── 文件上传至comfyui API ────────────────────────────────────────────
+@app.route('/api/comfyui/upload', methods=['POST'])
+def comfyui_upload_by_url():
+    import requests
+    import os
+    data = request.json
+    comfyui_url = data.get("comfyui_url", "http://127.0.0.1:8188")
+    image_url = data.get("image_url")
+
+    if not image_url:
+        return jsonify({"error": "image_url is required"}), 400
+
+    # 获取文件名
+    filename = image_url.split("/")[-1]
+    file_path = os.path.join(UPLOAD_DIR, filename)
+
+    if not os.path.exists(file_path):
+        return jsonify({"error": f"file not found: {filename}"}), 404
+
+    try:
+        with open(file_path, "rb") as f:
+            files = {"image": (filename, f, "image/png")}
+            data = {"type": "input", "overwrite": "true"}
+
+            res = requests.post(
+                f"{comfyui_url}/upload/image",
+                files=files,
+                data=data
+            )
+
+        if res.status_code != 200:
+            return jsonify({"error": "ComfyUI upload failed", "detail": res.text}), 500
+
+        # 提取 ComfyUI 返回的 JSON 并转发给前端
+        comfyui_data = res.json()
+        return jsonify(comfyui_data)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/file/<filename>')
 def get_file(filename):
     return send_from_directory(UPLOAD_DIR, filename)
@@ -260,12 +300,12 @@ def comfyui_img2vid():
                 outputs = hist[pid].get('outputs', {})
                 videos = []
                 for node_out in outputs.values():
-                    for vid in node_out.get('gifs', []) + node_out.get('videos', []):
+                    for vid in node_out.get('gifs', []) + node_out.get('videos', [])+ node_out.get('videos', []) + node_out.get('images', []):
                         vid_resp = req.get(
                             f"{comfyui_url}/view?filename={vid['filename']}&subfolder={vid.get('subfolder','')}&type={vid.get('type','output')}",
                             timeout=60
                         )
-                        ext = os.path.splitext(vid['filename'])[1] or '.mp4'
+                        ext = os.path.splitext(vid['filename'])[1] or '.mp4' or '.webm' or '.gif'
                         fname = f"{uuid.uuid4().hex}{ext}"
                         fpath = os.path.join(UPLOAD_DIR, fname)
                         with open(fpath, 'wb') as f:
