@@ -814,7 +814,6 @@ async function runVideo(id) {
   function hasImageRef() {
     return edges.some(e => e.target === id && (e.dstPort === 'characters' || e.dstPort === 'env_image'));
   }
-
   if (!motionPrompt || !motionPrompt.trim()) {
     alert('视频提示词为空，请确认上游"视频描述生成"节点已执行并通过，且镜头编号匹配。');
     return;
@@ -854,8 +853,17 @@ async function runVideo(id) {
 
   } else if (vidMode === 'comfyui') {
     const imgUrl = getKeyframeUrl();
+    const res = await fetch('/api/comfyui/upload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        comfyui_url: d.comfyui_url || s.comfyui_url || 'http://127.0.0.1:8188',
+        image_url: imgUrl
+      })
+    })
+    const result = await res.json();
     let wfStr = d.workflow || JSON.stringify(DEFAULT_WORKFLOWS.img2vid);
-    wfStr = wfStr.replace('{{motion_prompt}}', motionPrompt).replace('{{image_url}}', imgUrl);
+    wfStr = wfStr.replace('{{motion_prompt}}', motionPrompt).replace('{{image_url}}', result.name);
     let wf;
     try { wf = JSON.parse(wfStr); } catch(e) { alert('Workflow JSON 格式错误'); return; }
     await fetch('/api/comfyui/img2vid', {
