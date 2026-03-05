@@ -308,6 +308,9 @@ function volcanoImageConfigSection(node, settings) {
 function googleImageConfigSection(node, settings) {
   const d = node.data || {};
   const ps = (window._settings || {}).preset_img_google || {};
+  const sel = `style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff"`;
+  const refFiles = d.goog_ref_images || [];
+  const refList = refFiles.map((f,i) => `<div class="file-item"><span title="${f.name}">${f.name}</span><button onclick="removeFile('${node.id}','goog_ref_images',${i})">✕</button></div>`).join('');
   return `<div class="modal-section">
     <label>API Key（留空使用全局预设）</label>
     <input type="password" value="${d.img_api_key || ''}" placeholder="${ps.api_key ? '已配置全局预设' : 'YOUR_API_KEY'}"
@@ -315,22 +318,29 @@ function googleImageConfigSection(node, settings) {
     <label style="margin-top:6px">模型名</label>
     <input type="text" value="${d.img_model || ps.model || ''}" placeholder="imagen-3.0-generate-002"
       onchange="updateNodeData('${node.id}','img_model',this.value)">
-    <label style="margin-top:6px">number_of_images</label>
-    <input type="number" min="1" max="4" value="${d.goog_num_images || ps.num_images || 1}"
+    <label style="margin-top:6px">参考图片（可选，有则使用 generateContent 接口）</label>
+    <div class="file-upload-area" onclick="triggerUpload('${node.id}','goog_ref_images','image/*',false)">
+      点击上传参考图（单张）
+      <input type="file" id="fu-${node.id}-goog_ref_images" accept="image/*" style="display:none"
+        onchange="handleUpload(this,'${node.id}','goog_ref_images')">
+    </div>
+    <div class="file-list">${refList}</div>
+    <label style="margin-top:6px">number_of_images（默认1）</label>
+    <input type="number" min="1" max="4" value="${d.goog_num_images || 1}"
       onchange="updateNodeData('${node.id}','goog_num_images',this.value)">
     <label style="margin-top:6px">aspect_ratio（留空不发送）</label>
-    <select onchange="updateNodeData('${node.id}','goog_aspect_ratio',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+    <select onchange="updateNodeData('${node.id}','goog_aspect_ratio',this.value)" ${sel}>
       <option value="" ${!d.goog_aspect_ratio?'selected':''}>不指定</option>
-      <option value="16:9"  ${d.goog_aspect_ratio==='16:9'?'selected':''}>16:9</option>
-      <option value="9:16"  ${d.goog_aspect_ratio==='9:16'?'selected':''}>9:16</option>
-      <option value="1:1"   ${d.goog_aspect_ratio==='1:1'?'selected':''}>1:1</option>
-      <option value="4:3"   ${d.goog_aspect_ratio==='4:3'?'selected':''}>4:3</option>
+      <option value="16:9" ${d.goog_aspect_ratio==='16:9'?'selected':''}>16:9</option>
+      <option value="9:16" ${d.goog_aspect_ratio==='9:16'?'selected':''}>9:16</option>
+      <option value="1:1"  ${d.goog_aspect_ratio==='1:1'?'selected':''}>1:1</option>
+      <option value="4:3"  ${d.goog_aspect_ratio==='4:3'?'selected':''}>4:3</option>
     </select>
     <label style="margin-top:6px">negative_prompt（留空不发送）</label>
     <input type="text" value="${d.goog_neg_prompt || ps.negative_prompt || ''}" placeholder="模糊, 噪点, 变形"
       onchange="updateNodeData('${node.id}','goog_neg_prompt',this.value)">
     <label style="margin-top:6px">safety_filter_level（留空不发送）</label>
-    <select onchange="updateNodeData('${node.id}','goog_safety',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+    <select onchange="updateNodeData('${node.id}','goog_safety',this.value)" ${sel}>
       <option value="" ${!d.goog_safety?'selected':''}>不指定</option>
       <option value="BLOCK_LOW_AND_ABOVE"    ${d.goog_safety==='BLOCK_LOW_AND_ABOVE'?'selected':''}>BLOCK_LOW_AND_ABOVE</option>
       <option value="BLOCK_MEDIUM_AND_ABOVE" ${d.goog_safety==='BLOCK_MEDIUM_AND_ABOVE'?'selected':''}>BLOCK_MEDIUM_AND_ABOVE</option>
@@ -376,6 +386,29 @@ function volcanoVideoConfigSection(node, settings) {
 function googleVideoConfigSection(node, settings) {
   const d = node.data || {};
   const ps = (window._settings || {}).preset_vid_google || {};
+  const sel = `style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff"`;
+  const gvMode = d.goog_vid_mode || 'text';
+
+  // 首帧/尾帧/参考图上传区
+  function imgUpload(key, label) {
+    const files = d[key] || [];
+    const list = files.map((f,i) => `<div class="file-item"><span title="${f.name}">${f.name}</span><button onclick="removeFile('${node.id}','${key}',${i})">✕</button></div>`).join('');
+    return `<label style="margin-top:6px">${label}</label>
+    <div class="file-upload-area" onclick="triggerUpload('${node.id}','${key}','image/*',false)">
+      点击上传（单张）<input type="file" id="fu-${node.id}-${key}" accept="image/*" style="display:none"
+        onchange="handleUpload(this,'${node.id}','${key}')">
+    </div><div class="file-list">${list}</div>`;
+  }
+
+  let modeExtra = '';
+  if (gvMode === 'first_frame') {
+    modeExtra = imgUpload('goog_first_frame', '首帧图片');
+  } else if (gvMode === 'first_last') {
+    modeExtra = imgUpload('goog_first_frame', '首帧图片') + imgUpload('goog_last_frame', '尾帧图片');
+  } else if (gvMode === 'ref_image') {
+    modeExtra = imgUpload('goog_ref_image', '参考图片');
+  }
+
   return `<div class="modal-section">
     <label>API Key（留空使用全局预设）</label>
     <input type="password" value="${d.vid_api_key||''}" placeholder="${ps.api_key?'已配置全局预设':'YOUR_API_KEY'}"
@@ -383,16 +416,30 @@ function googleVideoConfigSection(node, settings) {
     <label style="margin-top:6px">模型名</label>
     <input type="text" value="${d.vid_model||ps.model||''}" placeholder="veo-3.1-generate-preview"
       onchange="updateNodeData('${node.id}','vid_model',this.value)">
-    <label style="margin-top:6px">aspect_ratio（留空不发送）</label>
-    <select onchange="updateNodeData('${node.id}','vid_aspect_ratio',this.value)" style="width:100%;padding:6px;background:#0f3460;border:1px solid #1a4a8a;border-radius:4px;color:#fff">
+    <label style="margin-top:6px">生成模式</label>
+    <select onchange="updateNodeData('${node.id}','goog_vid_mode',this.value);openModal('${node.id}')" ${sel}>
+      <option value="text"        ${gvMode==='text'?'selected':''}>纯文本生视频</option>
+      <option value="first_frame" ${gvMode==='first_frame'?'selected':''}>首帧生视频</option>
+      <option value="first_last"  ${gvMode==='first_last'?'selected':''}>首尾帧生视频</option>
+      <option value="ref_image"   ${gvMode==='ref_image'?'selected':''}>参考图生视频</option>
+    </select>
+    ${modeExtra}
+    <label style="margin-top:6px">aspectRatio（留空不发送，默认16:9）</label>
+    <select onchange="updateNodeData('${node.id}','vid_aspect_ratio',this.value)" ${sel}>
       <option value="" ${!d.vid_aspect_ratio?'selected':''}>不指定</option>
       <option value="16:9" ${d.vid_aspect_ratio==='16:9'?'selected':''}>16:9</option>
       <option value="9:16" ${d.vid_aspect_ratio==='9:16'?'selected':''}>9:16</option>
       <option value="1:1"  ${d.vid_aspect_ratio==='1:1'?'selected':''}>1:1</option>
     </select>
-    <label style="margin-top:6px">durationSeconds（留空不发送）</label>
+    <label style="margin-top:6px">durationSeconds（留空不发送，默认8）</label>
     <input type="number" min="1" max="60" value="${d.vid_duration||ps.duration_seconds||''}" placeholder="8"
       onchange="updateNodeData('${node.id}','vid_duration',this.value)">
+    <label style="margin-top:6px">resolution（留空不发送）</label>
+    <select onchange="updateNodeData('${node.id}','vid_resolution',this.value)" ${sel}>
+      <option value="" ${!d.vid_resolution?'selected':''}>不指定</option>
+      <option value="720p"  ${d.vid_resolution==='720p'?'selected':''}>720p</option>
+      <option value="1080p" ${d.vid_resolution==='1080p'?'selected':''}>1080p</option>
+    </select>
   </div>`;
 }
 
