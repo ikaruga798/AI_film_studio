@@ -748,9 +748,11 @@ async function runKeyPic(id) {
     if (d.goog_aspect_ratio || ps.aspect_ratio) imgCfg.aspect_ratio = d.goog_aspect_ratio || ps.aspect_ratio;
     if (d.goog_neg_prompt   || ps.negative_prompt) imgCfg.negative_prompt = d.goog_neg_prompt || ps.negative_prompt;
     if (d.goog_safety       || ps.safety_filter_level) imgCfg.safety_filter_level = d.goog_safety || ps.safety_filter_level;
+    const refImg = (d.goog_ref_images || [])[0];
     await fetch('/api/image_gen_google', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ node_id: id, api_key: apiKey, model, prompt, image_config: imgCfg })
+      body: JSON.stringify({ node_id: id, api_key: apiKey, model, prompt, image_config: imgCfg,
+        ref_image_url: refImg ? refImg.url : undefined })
     });
 
   } else if (genMode === 'api') {
@@ -836,19 +838,23 @@ async function runVideo(id) {
 
   } else if (vidMode === 'google') {
     const ps = s.preset_vid_google || {};
-    const apiKey = d.vid_api_key || ps.api_key || '';
-    const model  = d.vid_model   || ps.model   || 'veo-3.1-generate-preview';
-    const genCfg = {};
-    if (ps.aspect_ratio || d.vid_aspect_ratio) genCfg.aspectRatio = d.vid_aspect_ratio || ps.aspect_ratio;
-    if (ps.duration_seconds || d.vid_duration) genCfg.durationSeconds = parseInt(d.vid_duration || ps.duration_seconds || 8);
-    const imgUrl = getKeyframeUrl();
-    if (imgUrl && hasImageRef()) {
-      // 需要后端将 URL 转为 base64
-      genCfg.referenceImageUrl = imgUrl;
-    }
+    const apiKey  = d.vid_api_key || ps.api_key || '';
+    const model   = d.vid_model   || ps.model   || 'veo-3.1-generate-preview';
+    const gvMode  = d.goog_vid_mode || 'text';
+    const params  = {};
+    if (d.vid_aspect_ratio || ps.aspect_ratio) params.aspectRatio = d.vid_aspect_ratio || ps.aspect_ratio;
+    if (d.vid_duration || ps.duration_seconds) params.durationSeconds = parseInt(d.vid_duration || ps.duration_seconds);
+    if (d.vid_resolution) params.resolution = d.vid_resolution;
+    const firstUrl = (d.goog_first_frame || [])[0]?.url || getKeyframeUrl();
+    const lastUrl  = (d.goog_last_frame  || [])[0]?.url || '';
+    const refUrl   = (d.goog_ref_image   || [])[0]?.url || '';
     await fetch('/api/video_gen_google', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ node_id: id, api_key: apiKey, model, prompt: motionPrompt, generation_config: genCfg })
+      body: JSON.stringify({
+        node_id: id, api_key: apiKey, model, prompt: motionPrompt,
+        vid_mode: gvMode, parameters: params,
+        first_frame_url: firstUrl, last_frame_url: lastUrl, ref_image_url: refUrl
+      })
     });
 
   } else if (vidMode === 'comfyui') {
